@@ -8,7 +8,7 @@ import asyncio
 import json
 
 # Solana, Sui, and Aptos configuration
-SOLANA_RPC = "https://solana-mainnet.g.alchemy.com/v2/_PmB1kSGOTiFY5nbo-F1YxoJPSeJffRe"
+SOLANA_RPC = "https://api.mainnet-beta.solana.com"
 APTOS_RPC = "https://aptos-mainnet.nodereal.io"
 SUI_RPC = "https://sui-mainnet-endpoint.blockvision.org"
 
@@ -24,10 +24,9 @@ ACCOUNT2_NETWORKS = {
     "base": "https://base-mainnet.g.alchemy.com/v2/tGa9jt4SO9YCrQ_rHBv1o76oBWoJW8Rr"
 }
 
-
 # Helper Functions
-# def get_erc20_balance(network, wallet_address, token_address):
-#     web3 = Web3(Web3.HTTPProvider(NETWORKS[network]))
+# def get_erc20_balance(node_url, wallet_address, token_address):
+#     web3 = Web3(Web3.HTTPProvider(node_url))
 #     contract = web3.eth.contract(
 #         address=Web3.to_checksum_address(token_address),
 #         abi=[
@@ -61,21 +60,18 @@ def get_sol_balance(wallet_address):
 #     client = AptosClient(APTOS_RPC)
 #     balances = await client.account_balance(wallet_address)
 #     print(balances)
-    # for resource in balances:
-    #     if "coin" in resource['type']:
-    #         return resource['data']['coin']['value']
-    # print(balances) 
+#     for resource in balances:
+#         if "coin" in resource['type']:
+#             return resource['data']['coin']['value']
+#     print(balances) 
 
 async def get_balances():
-    # data = request.json
     eth_wallet_address_1 = "0x0076437A9385cDAd65FA6D6e80676e37F63AEF80"
     eth_wallet_address_2 = "0x0015e6E05487FE5369e9fBF60D10B566de31170c"
     sol_wallet_address = "DDWygtA7rmyjxFC5etGrw5jh7VUt58PWT2GXFawbvDGc"
     aptos_wallet_address = "0x6709e2de15a1e8d40adbcd812e6cad33e9c13f6582c738ef833e90981c1ceb31"
     sui_wallet_address = "0xffc23cf6e2e51f4cde3f69cdb72bd1877addf49757b28db59c01143f51ea6a3e"
-    # balances = {}
-    # bal_ethereum = get_eth_balance(eth_wallet_address_1)
-    # balances["ethereum"] = bal_ethereum
+
     balances = {}
     for account in [ACCOUNT1_NETWORKS, ACCOUNT2_NETWORKS]:
         account_balances = {}
