@@ -226,11 +226,20 @@ def get_balances():
         "MORPHO" : "0xBAa5CC21fd487B8Fcc2F632f3F4E8D37262a0842"
     }
     POLYGON_token_addresses = {
-        # "RNDR" : "0x61299774020da444af134c82fa83e3810b309991", # NOT AVAILABLE ON COINMARKETCAP
+        "RENDER" : "0x61299774020da444af134c82fa83e3810b309991", # NOT AVAILABLE ON COINMARKETCAP
         "OM" : "0xc3ec80343d2bae2f8e680fdadde7c17e71e114ea",
     }
     AVALANCHE_token_addresses = {
         "COQ" : "0x420fca0121dc28039145009570975747295f2329",
+    }
+
+    # If network tokens are added add it here as well
+    NETWORK_TOKEN_MAPPING = {
+        "arbitrum": ARB_token_addresses,
+        "binance": BNB_token_addresses,
+        "base": BASE_token_addresses,
+        "polygon": POLYGON_token_addresses,
+        "avalanche": AVALANCHE_token_addresses
     }
 
     balances = {}
@@ -243,26 +252,13 @@ def get_balances():
             if(account_network == ACCOUNT2_NETWORKS):
                 wallet_address = eth_wallet_address_2
 
+            # For network balances    
             account_balances[NETWORK_TOKEN_SYMBOLS[network]] = {'network' : network, 'balance' : get_eth_balance(account_network[network], wallet_address), 'decimal' : 10**18}
 
-            if(network == "arbitrum"):
-                for symbol, token_address in ARB_token_addresses.items():
-                    [bal, decimal] = get_erc20_balance(account_network[network], wallet_address, token_address)
-                    account_balances[symbol] = {'network' : network, 'balance' : bal, 'decimal' : decimal}
-            elif(network == "binance"):
-                for symbol, token_address in BNB_token_addresses.items():
-                    [bal, decimal] = get_erc20_balance(account_network[network], wallet_address, token_address)
-                    account_balances[symbol] = {'network' : network, 'balance' : bal, 'decimal' : decimal}
-            elif(network == "base"):
-                for symbol, token_address in BASE_token_addresses.items():
-                    [bal, decimal] = get_erc20_balance(account_network[network], wallet_address, token_address)
-                    account_balances[symbol] = {'network' : network, 'balance' : bal, 'decimal' : decimal}
-            elif(network == "polygon"):
-                for symbol, token_address in POLYGON_token_addresses.items():
-                    [bal, decimal] = get_erc20_balance(account_network[network], wallet_address, token_address)
-                    account_balances[symbol] = {'network' : network, 'balance' : bal, 'decimal' : decimal}
-            elif(network == "avalanche"):
-                for symbol, token_address in AVALANCHE_token_addresses.items():
+            # For tokens of network balances
+            if network in NETWORK_TOKEN_MAPPING:
+                token_addresses = NETWORK_TOKEN_MAPPING[network]
+                for symbol, token_address in token_addresses.items():
                     [bal, decimal] = get_erc20_balance(account_network[network], wallet_address, token_address)
                     account_balances[symbol] = {'network' : network, 'balance' : bal, 'decimal' : decimal}
         balances[wallet_address] = account_balances
@@ -317,7 +313,7 @@ def get_balances():
             total_portfolio_value += round((details['price'] * details['balance']) / details['decimal'], 10)
             total_pnl += round((details['price'] * details['balance']) / details['decimal'], 10) - details['investedAmount']
 
-    table_data.append(["Total Value----", "", "", "", "", total_portfolio_value, total_invested_value, total_pnl])
+    table_data.append(["Total Value----", "", "", "", "",total_invested_value, total_portfolio_value, total_pnl])
 
     # Define table headers
     headers = ["S.No.", "Wallet Address", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Portfolio Value (USD)", "CML. PNL (USD)"]
