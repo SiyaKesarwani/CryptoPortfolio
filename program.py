@@ -1,3 +1,4 @@
+from requests.auth import to_native_string
 from web3 import Web3
 from solana.rpc.api import Client as SolanaClient
 from solders.pubkey import Pubkey
@@ -9,11 +10,7 @@ import requests
 from decimal import Decimal
 import csv
 
-# from aptos_sdk.async_client import RestClient as AptosClient
-# from pysui import SyncClient, SuiConfig, handle_result
-# from pysui.sui.sui_txn import SyncTransaction
-
-# Your CoinMarketCap API key (replace with your actual key)
+# Your CoinMarketCap API key
 API_KEY = "8e3d4b58-4c9b-4cec-891b-e74a1dc0e285"
 # CoinMarketCap API endpoint
 COINMARKETCAP_URL = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
@@ -23,6 +20,7 @@ SOLANA_RPC = "https://api.mainnet-beta.solana.com"
 APTOS_RPC = "https://aptos-mainnet.nodereal.io"
 SUI_RPC = "https://rpc.mainnet.sui.io"
 
+# Add any network token symbol, iff any network balance is needed to be fetched
 NETWORK_TOKEN_SYMBOLS = {
     "ethereum": "ETH",
     "arbitrum": "ETH_ARB",
@@ -32,6 +30,7 @@ NETWORK_TOKEN_SYMBOLS = {
     "avalanche": "AVAX"
 }
 
+# Add any new network to any of the accounts
 ACCOUNT1_NETWORKS = {
     "ethereum": "https://eth-mainnet.g.alchemy.com/v2/UrggOgGebZS0QmIEHRa1Kvg521x9Uy2Y",
     "arbitrum": "https://arb-mainnet.g.alchemy.com/v2/UrggOgGebZS0QmIEHRa1Kvg521x9Uy2Y",
@@ -39,35 +38,14 @@ ACCOUNT1_NETWORKS = {
     "polygon": "https://polygon-mainnet.g.alchemy.com/v2/UrggOgGebZS0QmIEHRa1Kvg521x9Uy2Y",
     "avalanche": "https://avax-mainnet.g.alchemy.com/v2/UrggOgGebZS0QmIEHRa1Kvg521x9Uy2Y"
 }
-
 ACCOUNT2_NETWORKS = {
     "ethereum": "https://eth-mainnet.g.alchemy.com/v2/UrggOgGebZS0QmIEHRa1Kvg521x9Uy2Y",
     "base": "https://base-mainnet.g.alchemy.com/v2/tGa9jt4SO9YCrQ_rHBv1o76oBWoJW8Rr"
 }
-        # Usage example:
-file_path = 'Investments.csv'  # Replace with your CSV file path
-column_name = 'Ticker'    # Replace with the column name you want to search in
 
-def find_row_details(file_path, column_name, search_value):
-    try:
-        with open(file_path, mode='r') as file:
-            reader = csv.DictReader(file)
-            found = False
-            # print(f"Rows containing '{search_value}' in column '{column_name}':")
-            # print("-" * 50)
-            for row in reader:
-                if row[column_name] == search_value:
-                    found = True
-                    return(row)
-            
-            if not found:
-                print(f"No rows found with '{search_value}' in column '{column_name}'.")
-    except FileNotFoundError:
-        print(f"Error: The file '{file_path}' was not found.")
-    except KeyError:
-        print(f"Error: The column '{column_name}' does not exist in the file.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+# Give path and column name of csv file
+FILE_PATH = 'Investments.csv' 
+COLUMN_NAME = 'Ticker' 
 
 # Helper Functions
 def get_erc20_balance(node_url, wallet_address, token_address):
@@ -101,7 +79,6 @@ def get_eth_balance(node_url, wallet_address):
     try:
         web3 = Web3(Web3.HTTPProvider(node_url))
         balance_wei = web3.eth.get_balance(wallet_address)
-        # balance_eth = web3.from_wei(balance_wei, 'ether')
         return balance_wei
     except Exception as e:
         print(f"Error fetching balance: {e}")
@@ -111,24 +88,6 @@ def get_sol_balance(wallet_address):
     result = client.get_balance(Pubkey.from_string(wallet_address))
     bal = result.value
     return bal
-
-# def get_sui_balance(wallet_address):
-#     # print("79")
-#     # client = SyncClient()
-#     # print("81")
-#     # balance = client.get_balances(wallet_address)
-#     # print(balance)
-#     client = SyncClient(SuiConfig.default_config())
-#     print(client)
-
-# async def get_aptos_balance(wallet_address):
-#     client = AptosClient(APTOS_RPC)
-#     balances = await client.account_balance(wallet_address)
-#     print(balances)
-#     for resource in balances:
-#         if "coin" in resource['type']:
-#             return resource['data']['coin']['value']
-#     print(balances) 
 
 # async def fetch_price(session, symbol):
 #     """Fetch the price of a single cryptocurrency symbol."""
@@ -183,6 +142,27 @@ def fetch_prices(symbols):
         print(f"Exception occurred: {e}")
     return prices
 
+def find_row_details(search_value):
+    try:
+        with open(FILE_PATH, mode='r') as file:
+            reader = csv.DictReader(file)
+            found = False
+            # print(f"Rows containing '{search_value}' in column '{COLUMN_NAME}':")
+            # print("-" * 50)
+            for row in reader:
+                if row[COLUMN_NAME] == search_value:
+                    found = True
+                    return(row)
+            
+            if not found:
+                print(f"No rows found with '{search_value}' in column '{COLUMN_NAME}'.")
+    except FileNotFoundError:
+        print(f"Error: The file '{FILE_PATH}' was not found.")
+    except KeyError:
+        print(f"Error: The column '{COLUMN_NAME}' does not exist in the file.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
 def get_balances():
     eth_wallet_address_1 = "0x0076437A9385cDAd65FA6D6e80676e37F63AEF80"
     eth_wallet_address_2 = "0x0015e6E05487FE5369e9fBF60D10B566de31170c"
@@ -191,7 +171,7 @@ def get_balances():
     sui_wallet_address = "0xffc23cf6e2e51f4cde3f69cdb72bd1877addf49757b28db59c01143f51ea6a3e"
     ARB_token_addresses = {
         "KIMA": "0x94fCD9c18f99538C0f7C61c5500cA79F0D5C4dab",
-        "AAVE": "0xba5DdD1f9d7F570dc94a51479a000E3BCE967196",
+        # "AAVE": "0xba5DdD1f9d7F570dc94a51479a000E3BCE967196", # Removed investment
         "GRT": "0x9623063377AD1B27544C965cCd7342f7EA7e88C7",
         "LINK": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
         "ARB": "0x912CE59144191C1204E64559FE8253a0e49E6548",
@@ -243,6 +223,7 @@ def get_balances():
     }
 
     balances = {}
+    unique_symbols = []
 
     # To fetch balance of network tokens
     for account_network in [ACCOUNT1_NETWORKS, ACCOUNT2_NETWORKS]:
@@ -257,36 +238,48 @@ def get_balances():
 
             # For tokens of network balances
             if network in NETWORK_TOKEN_MAPPING:
+                # Add unique symbols
+                if network == "arbitrum" or network == "base":
+                    unique_symbols.append("ETH")
+                else:
+                    unique_symbols.append(NETWORK_TOKEN_SYMBOLS[network])
+                
+                # Now fetch tokens of network
                 token_addresses = NETWORK_TOKEN_MAPPING[network]
                 for symbol, token_address in token_addresses.items():
+                    if symbol not in unique_symbols:
+                        unique_symbols.append(symbol)
                     [bal, decimal] = get_erc20_balance(account_network[network], wallet_address, token_address)
                     account_balances[symbol] = {'network' : network, 'balance' : bal, 'decimal' : decimal}
         balances[wallet_address] = account_balances
 
     bal_solana = get_sol_balance(sol_wallet_address)
     balances[sol_wallet_address] = {"SOL": {'network' : 'solana', 'balance' : bal_solana, 'decimal' : 10**9}}
-
-    # bal_aptos = await get_aptos_balance(aptos_wallet_address)
-    # bal_sui = get_sui_balance(sui_wallet_address)
+    unique_symbols.append("SOL")
 
     #fetch prices of all tokens
-    prices = fetch_prices(["ETH", "BNB", "SOL", "POL", "AVAX"] + list(ARB_token_addresses.keys()) + list(BNB_token_addresses.keys()) + list(BASE_token_addresses.keys()) + list(POLYGON_token_addresses.keys()) + list(AVALANCHE_token_addresses.keys()))
+    prices = fetch_prices(unique_symbols)
 
     for v in balances.values():
         nested_keys_list = list(v.keys())
         for symbol in nested_keys_list:
+
             if symbol in prices.keys():
                 v[symbol].update({'price' : prices[symbol]})
             elif symbol == "ETH_ARB" or symbol == "ETH_BASE":
                 v[symbol].update({'price' : prices["ETH"]})
             
             if(symbol == "WBTC"):
-                row_details = find_row_details(file_path, column_name, "BTC")
+                row_details = find_row_details("BTC")
+            elif(symbol == "ETH_ARB"):
+                row_details = find_row_details("ETH")
             else:
-                row_details = find_row_details(file_path, column_name, symbol) # here key is symbol
+                row_details = find_row_details(symbol) # here key is symbol
 
             if(isinstance(row_details, dict)):
                 v[symbol].update({'investedAmount' : int(row_details['Amount'])})
+                if(symbol == "ETH"):
+                        v[symbol].update({'investedAmount' : 0})
             else:
                 v[symbol].update({'investedAmount' : 0})
 
@@ -299,8 +292,7 @@ def get_balances():
     for wallet, symbols in balances.items():
         for network, details in symbols.items():
             table_data.append([
-                row_no,
-                wallet,       # Wallet Address
+                row_no,    # Wallet Address
                 network,      # Network Name
                 details['network'],  # Token Name
                 round(details['price'], 10), # Token Price
@@ -313,10 +305,10 @@ def get_balances():
             total_portfolio_value += round((details['price'] * details['balance']) / details['decimal'], 10)
             total_pnl += round((details['price'] * details['balance']) / details['decimal'], 10) - details['investedAmount']
 
-    table_data.append(["Total Value----", "", "", "", "",total_invested_value, total_portfolio_value, total_pnl])
+    table_data.append(["Total Value----", "", "", "", total_invested_value, total_portfolio_value, total_pnl])
 
     # Define table headers
-    headers = ["S.No.", "Wallet Address", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Portfolio Value (USD)", "CML. PNL (USD)"]
+    headers = ["S.No.", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Current Value (USD)", "CML. PNL (USD)"]
 
     # Print table
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
