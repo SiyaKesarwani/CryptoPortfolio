@@ -1,4 +1,3 @@
-from requests.auth import to_native_string
 from web3 import Web3
 from solana.rpc.api import Client as SolanaClient
 from solders.pubkey import Pubkey
@@ -11,13 +10,21 @@ from decimal import Decimal
 import csv
 from dotenv import load_dotenv
 import os
+import hashlib
+import re
+import time
+import hmac
+from urllib.parse import urlparse, urlencode
 
 # Load environment variables from .env file
 load_dotenv()
-# Your CoinMarketCap API key
+# Your API key
 API_KEY = os.getenv('COINMARKETCAP_APIKEY')
-# CoinMarketCap API endpoint
+access_id = os.getenv('ACCESS_ID')
+secret_key = os.getenv('SECRET_KEY')
+# CoinMarketCap and Coinex API endpoint
 COINMARKETCAP_URL = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+COINEX_API_URL = "https://api.coinex.com/v1/market/ticker/all"
 
 # Solana, Sui, and Aptos configuration
 SOLANA_RPC = "https://api.mainnet-beta.solana.com"
@@ -50,6 +57,76 @@ ACCOUNT2_NETWORKS = {
 # Give path and column name of csv file
 FILE_PATH = 'Investments.csv' 
 COLUMN_NAME = 'Ticker' 
+
+class RequestsClient(object):
+    HEADERS = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Accept": "application/json",
+        "X-COINEX-KEY": "",
+        "X-COINEX-SIGN": "",
+        "X-COINEX-TIMESTAMP": "",
+    }
+
+    def __init__(self):
+        self.access_id = access_id
+        self.secret_key = secret_key
+        self.url = "https://api.coinex.com/v2"
+        self.headers = self.HEADERS.copy()
+
+    # Generate your signature string
+    def gen_sign(self, method, request_path, body, timestamp):
+        prepared_str = f"{method}{request_path}{body}{timestamp}"
+        signature = hmac.new(
+            bytes(self.secret_key, 'latin-1'),
+            msg=bytes(prepared_str, 'latin-1'),
+            digestmod=hashlib.sha256
+        ).hexdigest().lower()
+        return signature
+
+    def get_common_headers(self, signed_str, timestamp):
+        headers = self.HEADERS.copy()
+        headers["X-COINEX-KEY"] = self.access_id
+        headers["X-COINEX-SIGN"] = signed_str
+        headers["X-COINEX-TIMESTAMP"] = timestamp
+        headers["Content-Type"] = "application/json; charset=utf-8"
+        return headers
+
+    def request(self, method, url, params={}, data=""):
+        req = urlparse(url)
+        request_path = req.path
+
+        timestamp = str(int(time.time() * 1000))
+        if method.upper() == "GET":
+            # If params exist, query string needs to be added to the request path
+            if params:
+                for item in params:
+                    if params[item] is None:
+                        del params[item]
+                        continue
+                request_path = request_path + "?" + urlencode(params)
+
+            signed_str = self.gen_sign(
+                method, request_path, body="", timestamp=timestamp
+            )
+            response = requests.get(
+                url,
+                params=params,
+                headers=self.get_common_headers(signed_str, timestamp),
+            )
+
+        else:
+            signed_str = self.gen_sign(
+                method, request_path, body=data, timestamp=timestamp
+            )
+            response = requests.post(
+                url, data, headers=self.get_common_headers(signed_str, timestamp)
+            )
+
+        if response.status_code != 200:
+            raise ValueError(response.text)
+        return response
+
+REQUEST_CLIENT = RequestsClient()
 
 # Helper Functions
 def get_erc20_balance(node_url, wallet_address, token_address):
@@ -93,6 +170,16 @@ def get_sol_balance(wallet_address):
     bal = result.value
     return bal
 
+def get_spot_market():
+    request_path = "/assets/spot/balance"
+    params = {}
+    response = REQUEST_CLIENT.request(
+        "GET",
+        "{url}{request_path}".format(url=REQUEST_CLIENT.url, request_path=request_path),
+        params=params,
+    )
+    return response
+
 # async def fetch_price(session, symbol):
 #     """Fetch the price of a single cryptocurrency symbol."""
 #     headers = {
@@ -120,7 +207,7 @@ def get_sol_balance(wallet_address):
 #             await asyncio.gather(*tasks)
 #             await asyncio.sleep(10)
 
-def fetch_prices(symbols):
+def fetch_prices_from_coinMarketCap(symbols):
     """Fetch cryptocurrency prices from CoinMarketCap."""
     headers = {
         "Accepts": "application/json",
@@ -146,6 +233,38 @@ def fetch_prices(symbols):
         print(f"Exception occurred: {e}")
     return prices
 
+def fetch_prices_from_coinex(symbols):
+    try:
+        # Make the GET request
+        response = requests.get(COINEX_API_URL)
+        response.raise_for_status()  # Raise an error for bad status codes
+
+        # Parse the JSON response
+        data = response.json()
+
+        prices = {}
+
+        if data["code"] == 0:
+            markets = data["data"]["ticker"]
+
+            # Print cryptocurrency prices
+            for symbol in symbols:
+                if symbol in markets:
+                    price = markets[symbol]['last']
+                    prices[symbol[0:len(symbol)-4]] = price
+                    # print(f"{market}: Last Price = {markets[market]['last']}")
+                else:
+                    print(f"{symbol} not found on CoinEx.")
+            # for market, details in markets.items():
+            #     print(f"{market}: Last Price = {details['last']}")
+        else:
+            print(f"Error: {data['message']}")
+        return prices
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred: {e}")
+        return {}
+
+# Find invested value from csv file
 def find_row_details(search_value):
     try:
         with open(FILE_PATH, mode='r') as file:
@@ -167,7 +286,7 @@ def find_row_details(search_value):
     except Exception as e:
         print(f"An error occurred: {e}")
 
-def get_balances():
+def get_decentralised_balances():
     eth_wallet_address_1 = "0x0076437A9385cDAd65FA6D6e80676e37F63AEF80"
     eth_wallet_address_2 = "0x0015e6E05487FE5369e9fBF60D10B566de31170c"
     sol_wallet_address = "DDWygtA7rmyjxFC5etGrw5jh7VUt58PWT2GXFawbvDGc"
@@ -262,12 +381,12 @@ def get_balances():
     unique_symbols.append("SOL")
 
     #fetch prices of all tokens
-    prices = fetch_prices(unique_symbols)
-
+    prices = fetch_prices_from_coinMarketCap(unique_symbols)
+    
+    # fetch invested amount from csv file
     for v in balances.values():
         nested_keys_list = list(v.keys())
         for symbol in nested_keys_list:
-
             if symbol in prices.keys():
                 v[symbol].update({'price' : prices[symbol]})
             elif symbol == "ETH_ARB" or symbol == "ETH_BASE":
@@ -300,9 +419,12 @@ def get_balances():
             pnl = round((details['price'] * details['balance']) / details['decimal'], 10) - details['investedAmount']
             percentage = 100
             invested_times_current = 0
+            is_alarming = ""
             if invested_value != 0:
                 percentage = round((pnl / invested_value) * 100, 2)
                 invested_times_current = round(current_value / invested_value, 2)
+            if pnl < 0 :
+                is_alarming = "alarming!!!"
             table_data.append([
                 row_no,    # Wallet Address
                 network,      # Network Name
@@ -312,7 +434,8 @@ def get_balances():
                 current_value, # Total current value
                 pnl, # Total PNL
                 str(percentage) + " %",
-                str(invested_times_current) + " x"
+                str(invested_times_current) + " x",
+                is_alarming
             ])
             row_no += 1
             total_invested_value += invested_value
@@ -322,10 +445,169 @@ def get_balances():
     table_data.append(["Total Value----", "", "", "", total_invested_value, total_current_value, total_pnl, str(round((total_pnl / total_invested_value) * 100, 2)) + " %", str(round(total_current_value / total_invested_value, 2)) + " x"])
 
     # Define table headers
-    headers = ["S.No.", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Current Value (USD)", "CML. PNL (USD)", "Percentage I/D", "Invested Times Current"]
+    headers = ["S.No.", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Current Value (USD)", "CML. PNL (USD)", "Percentage I/D", "Invested Times Current", "is_alarming"]
 
     # Print table
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
 
+    return balances
+
+def get_centralised_balances():
+    balances = get_spot_market().json()
+    balances_data = balances['data']
+
+    symbols = []
+    for data in balances_data:
+        if data['ccy'] != "USDT":
+            symbols.append(data['ccy']+"USDT")
+
+    token_prices = fetch_prices_from_coinex(symbols)
+
+    # fetch invested amount from csv file and prices
+    for token_detail in balances_data:
+        token_detail.update({'network': "coinex"})
+
+        symbol = token_detail['ccy']
+
+        if symbol in token_prices:
+            token_detail.update({'price' : Decimal(token_prices[symbol])})
+        else:
+            price = fetch_prices_from_coinMarketCap([symbol])
+            token_detail.update({'price' : price[symbol]})
+        
+        if(symbol == "TRUMP"):
+            row_details = find_row_details("MAGA")
+        elif(symbol == "DOGEGOV"):
+            row_details = find_row_details("DOGE")
+        else:
+            row_details = find_row_details(symbol) # here key is symbol
+
+        if(isinstance(row_details, dict)):
+            token_detail.update({'investedAmount' : int(row_details['Amount'])})
+        else:
+            token_detail.update({'investedAmount' : 0})
+
+    # network = "coinex"
+    table_data = []
+    total_invested_value = 0
+    row_no = 1
+    total_current_value = 0
+    total_pnl = 0
+
+    for details in balances_data:
+        invested_value = details['investedAmount']
+        current_value = details['price'] * Decimal(details['available'])
+        pnl = details['price'] * Decimal(details['available']) - details['investedAmount']
+        percentage = 100
+        invested_times_current = 0
+        is_alarming = ""
+        if invested_value != 0:
+            percentage = round((pnl / invested_value) * 100, 2)
+            invested_times_current = round(current_value / invested_value, 2)
+        if pnl < 0 :
+            is_alarming = "alarming!!!"
+        table_data.append([
+            row_no,    # Wallet Address
+            details['ccy'],  # Token Name
+            details['network'],      # Network Name
+            round(details['price'], 10), # Token Price
+            invested_value, # Invested value
+            current_value, # Total current value
+            pnl, # Total PNL
+            str(percentage) + " %",
+            str(invested_times_current) + " x",
+            is_alarming
+        ])
+        row_no += 1
+        total_invested_value += invested_value
+        total_current_value += current_value
+        total_pnl += pnl
+
+    # Convert data to tabular format
+    table_data.append(["Total Value----", "", "", "", total_invested_value, total_current_value, total_pnl, str(round((total_pnl / total_invested_value) * 100, 2)) + " %", str(round(total_current_value / total_invested_value, 2)) + " x"])
+
+    # Define table headers
+    headers = ["S.No.", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Current Value (USD)", "CML. PNL (USD)", "Percentage I/D", "Invested Times Current", "is_alarming"]
+
+    # Print table
+    print(tabulate(table_data, headers=headers, tablefmt="grid"))
+
+    return balances_data
+
 if __name__ == "__main__":
-    get_balances()
+    d_balances = get_decentralised_balances()
+    c_balances = get_centralised_balances()
+    
+    table_data = []
+    total_invested_value = 0
+    row_no = 1
+    total_current_value = 0
+    total_pnl = 0
+
+    for wallet, symbols in d_balances.items():
+        for network, details in symbols.items():
+            invested_value = details['investedAmount']
+            current_value = round((details['price'] * details['balance']) / details['decimal'], 10)
+            pnl = round((details['price'] * details['balance']) / details['decimal'], 10) - details['investedAmount']
+            percentage = 100
+            invested_times_current = 0
+            is_alarming = ""
+            if invested_value != 0:
+                percentage = round((pnl / invested_value) * 100, 2)
+                invested_times_current = round(current_value / invested_value, 2)
+            if pnl < 0 :
+                is_alarming = "alarming!!!"
+            table_data.append([
+                row_no,    # Wallet Address
+                network,      # Network Name
+                details['network'],  # Token Name
+                round(details['price'], 10), # Token Price
+                invested_value, # Invested value
+                current_value, # Total current value
+                pnl, # Total PNL
+                str(percentage) + " %",
+                str(invested_times_current) + " x",
+                is_alarming
+            ])
+            row_no += 1
+            total_invested_value += invested_value
+            total_current_value += current_value
+            total_pnl += pnl
+            
+    for details in c_balances:
+        invested_value = details['investedAmount']
+        current_value = details['price'] * Decimal(details['available'])
+        pnl = details['price'] * Decimal(details['available']) - details['investedAmount']
+        percentage = 100
+        invested_times_current = 0
+        is_alarming = ""
+        if invested_value != 0:
+            percentage = round((pnl / invested_value) * 100, 2)
+            invested_times_current = round(current_value / invested_value, 2)
+        if pnl < 0 :
+            is_alarming = "alarming!!!"
+        table_data.append([
+            row_no,    # Wallet Address
+            details['ccy'],  # Token Name
+            "coinex",      # Network Name
+            round(details['price'], 10), # Token Price
+            invested_value, # Invested value
+            current_value, # Total current value
+            pnl, # Total PNL
+            str(percentage) + " %",
+            str(invested_times_current) + " x",
+            is_alarming
+        ])
+        row_no += 1
+        total_invested_value += invested_value
+        total_current_value += current_value
+        total_pnl += pnl
+
+    # Convert data to tabular format
+    table_data.append(["Total Value----", "", "", "", total_invested_value, total_current_value, total_pnl, str(round((total_pnl / total_invested_value) * 100, 2)) + " %", str(round(total_current_value / total_invested_value, 2)) + " x"])
+
+    # Define table headers
+    headers = ["S.No.", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Current Value (USD)", "CML. PNL (USD)", "Percentage I/D", "Invested Times Current", "is_alarming"]
+
+    # Print table
+    print(tabulate(table_data, headers=headers, tablefmt="grid"))

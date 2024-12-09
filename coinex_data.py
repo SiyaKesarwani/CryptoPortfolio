@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 import hashlib
+import re
 import time
 import hmac
 from urllib.parse import urlparse, urlencode
 from dotenv import load_dotenv
 import os
+from decimal import Decimal
 
 import requests
 
@@ -16,6 +18,7 @@ load_dotenv()
 access_id = os.getenv('ACCESS_ID')
 secret_key = os.getenv('SECRET_KEY')
 
+COINEX_API_URL = "https://api.coinex.com/v1/market/ticker/all"
 
 class RequestsClient(object):
     HEADERS = {
@@ -88,6 +91,37 @@ class RequestsClient(object):
 
 request_client = RequestsClient()
 
+def fetch_prices(symbols):
+    try:
+        # Make the GET request
+        response = requests.get(COINEX_API_URL)
+        response.raise_for_status()  # Raise an error for bad status codes
+
+        # Parse the JSON response
+        data = response.json()
+
+        prices = {}
+
+        if data["code"] == 0:
+            markets = data["data"]["ticker"]
+
+            # Print cryptocurrency prices
+            print("Cryptocurrency Prices on CoinEx:")
+            for symbol in symbols:
+                if symbol in markets:
+                    price = markets[symbol]['last']
+                    prices[symbol[0:len(symbol)-4]] = price
+                    # print(f"{market}: Last Price = {markets[market]['last']}")
+                else:
+                    print(f"{symbol} not found on CoinEx.")
+            # for market, details in markets.items():
+            #     print(f"{market}: Last Price = {details['last']}")
+        else:
+            print(f"Error: {data['message']}")
+        return prices
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred: {e}")
+        return {}
 
 def get_spot_market():
     request_path = "/assets/spot/balance"
@@ -104,9 +138,23 @@ def run_code():
     try:
         response = get_spot_market().json()
         response_data = response['data']
+
+        symbols = []
+        for data in response_data:
+            if data['ccy'] != "USDT":
+                symbols.append(data['ccy']+"USDT")
+
+        token_prices = fetch_prices(symbols)
+
+        for token_detail in response_data:
+            if token_detail['ccy'] in token_prices:
+                token_detail.update({'price':Decimal(token_prices[token_detail['ccy']])})
+            else:
+                token_detail.update({'price':0})
+
         # Convert data to tabular format
-        headers = ["Currency", "Available", "Frozen"]
-        rows = [(entry['ccy'], entry['available'], entry['frozen']) for entry in response_data]
+        headers = ["Currency", "Price (USD)", "Current Value (USD)"]
+        rows = [(entry['ccy'], entry['price'],  entry['price'] * Decimal(entry['available'])) for entry in response_data]
 
         # Print table
         print(tabulate(rows, headers=headers, tablefmt="grid"))
@@ -119,3 +167,4 @@ def run_code():
 
 if __name__ == "__main__":
     run_code()
+    # fetch_prices()
