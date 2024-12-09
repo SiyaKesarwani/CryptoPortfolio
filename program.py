@@ -9,9 +9,13 @@ from datetime import datetime
 import requests
 from decimal import Decimal
 import csv
+from dotenv import load_dotenv
+import os
 
+# Load environment variables from .env file
+load_dotenv()
 # Your CoinMarketCap API key
-API_KEY = "8e3d4b58-4c9b-4cec-891b-e74a1dc0e285"
+API_KEY = os.getenv('COINMARKETCAP_APIKEY')
 # CoinMarketCap API endpoint
 COINMARKETCAP_URL = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
 
@@ -284,33 +288,44 @@ def get_balances():
                 v[symbol].update({'investedAmount' : 0})
 
     table_data = []
-    total_portfolio_value = 0
-    row_no = 1
     total_invested_value = 0
+    row_no = 1
+    total_current_value = 0
     total_pnl = 0
 
     for wallet, symbols in balances.items():
         for network, details in symbols.items():
+            invested_value = details['investedAmount']
+            current_value = round((details['price'] * details['balance']) / details['decimal'], 10)
+            pnl = round((details['price'] * details['balance']) / details['decimal'], 10) - details['investedAmount']
+            percentage = 100
+            invested_times_current = 0
+            if invested_value != 0:
+                percentage = round((pnl / invested_value) * 100, 2)
+                invested_times_current = round(current_value / invested_value, 2)
             table_data.append([
                 row_no,    # Wallet Address
                 network,      # Network Name
                 details['network'],  # Token Name
                 round(details['price'], 10), # Token Price
-                details['investedAmount'],
-                round((details['price'] * details['balance']) / details['decimal'], 10), # Total value
-                round((details['price'] * details['balance']) / details['decimal'], 10) - details['investedAmount']
+                invested_value, # Invested value
+                current_value, # Total current value
+                pnl, # Total PNL
+                str(percentage) + " %",
+                str(invested_times_current) + " x"
             ])
             row_no += 1
-            total_invested_value += details['investedAmount']
-            total_portfolio_value += round((details['price'] * details['balance']) / details['decimal'], 10)
-            total_pnl += round((details['price'] * details['balance']) / details['decimal'], 10) - details['investedAmount']
+            total_invested_value += invested_value
+            total_current_value += current_value
+            total_pnl += pnl
 
-    table_data.append(["Total Value----", "", "", "", total_invested_value, total_portfolio_value, total_pnl])
+    table_data.append(["Total Value----", "", "", "", total_invested_value, total_current_value, total_pnl, str(round((total_pnl / total_invested_value) * 100, 2)) + " %", str(round(total_current_value / total_invested_value, 2)) + " x"])
 
     # Define table headers
-    headers = ["S.No.", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Current Value (USD)", "CML. PNL (USD)"]
+    headers = ["S.No.", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Current Value (USD)", "CML. PNL (USD)", "Percentage I/D", "Invested Times Current"]
 
     # Print table
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
 
-get_balances()
+if __name__ == "__main__":
+    get_balances()
