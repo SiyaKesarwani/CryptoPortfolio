@@ -55,7 +55,7 @@ ACCOUNT2_NETWORKS = {
 }
 
 # Give path and column name of csv file
-FILE_PATH = 'Investments.csv' 
+FILE_PATH = 'investment_data.csv' 
 COLUMN_NAME = 'Ticker' 
 
 class RequestsClient(object):

@@ -3,7 +3,6 @@ from solana.rpc.api import Client as SolanaClient
 from solders.pubkey import Pubkey
 import asyncio
 from tabulate import tabulate
-import aiohttp
 from datetime import datetime
 import requests
 from decimal import Decimal
@@ -11,7 +10,6 @@ import csv
 from dotenv import load_dotenv
 import os
 import hashlib
-import re
 import time
 import hmac
 from urllib.parse import urlparse, urlencode
@@ -22,6 +20,7 @@ load_dotenv()
 API_KEY = os.getenv('COINMARKETCAP_APIKEY')
 access_id = os.getenv('ACCESS_ID')
 secret_key = os.getenv('SECRET_KEY')
+SHEET_ID = os.getenv('GOOGLE_SHEET_ID')  # Replace with your Google Sheet ID
 # CoinMarketCap and Coinex API endpoint
 COINMARKETCAP_URL = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
 COINEX_API_URL = "https://api.coinex.com/v1/market/ticker/all"
@@ -54,9 +53,34 @@ ACCOUNT2_NETWORKS = {
     "base": "https://base-mainnet.g.alchemy.com/v2/tGa9jt4SO9YCrQ_rHBv1o76oBWoJW8Rr"
 }
 
+GID = "0"  # Replace with the GID of the specific tab (default is usually 0)
+
 # Give path and column name of csv file
-FILE_PATH = 'Investments.csv' 
+FILE_PATH = 'investment_data.csv' 
 COLUMN_NAME = 'Ticker' 
+
+def update_investment_data(output_file):
+    """
+    Downloads a Google Sheet as a CSV and saves it locally.
+    
+    Args:
+        sheet_id (str): The ID of the Google Sheet (from the URL).
+        gid (str): The GID of the specific sheet/tab to download.
+        output_file (str): Path to save the downloaded CSV.
+    """
+    # URL to export Google Sheet to CSV
+    url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+    
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad status codes
+        
+        # Save the content to the file
+        with open(output_file, "wb") as file:
+            file.write(response.content)
+        print(f"Sheet downloaded and saved as '{output_file}'")
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to download the sheet: {e}")
 
 class RequestsClient(object):
     HEADERS = {
@@ -180,33 +204,6 @@ def get_spot_market():
     )
     return response
 
-# async def fetch_price(session, symbol):
-#     """Fetch the price of a single cryptocurrency symbol."""
-#     headers = {
-#         "Accepts": "application/json",
-#         "X-CMC_PRO_API_KEY": API_KEY,
-#     }
-#     params = {"symbol": symbol}
-    
-#     try:
-#         async with session.get(COINMARKETCAP_URL, headers=headers, params=params) as response:
-#             data = await response.json()
-#             if response.status == 200:
-#                 price = data["data"][symbol]["quote"]["USD"]["price"]
-#                 print(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {symbol}: ${price:,.2f}")
-#             else:
-#                 print(f"Error fetching {symbol}: {data.get('status', {}).get('error_message', 'Unknown error')}")
-#     except Exception as e:
-#         print(f"Exception while fetching {symbol}: {e}")
-
-# async def fetch_prices_periodically():
-#     """Fetch cryptocurrency prices every 10 seconds."""
-#     async with aiohttp.ClientSession() as session:
-#         while True:
-#             tasks = [fetch_price(session, symbol) for symbol in SYMBOLS]
-#             await asyncio.gather(*tasks)
-#             await asyncio.sleep(10)
-
 async def fetch_prices_from_coinMarketCap(symbols):
     """Fetch cryptocurrency prices from CoinMarketCap."""
     headers = {
@@ -253,11 +250,8 @@ def fetch_prices_from_coinex(symbols):
                 if symbol in markets:
                     price = markets[symbol]['last']
                     prices[symbol[0:len(symbol)-4]] = price
-                    # print(f"{market}: Last Price = {markets[market]['last']}")
                 else:
                     print(f"{symbol} not found on CoinEx.")
-            # for market, details in markets.items():
-            #     print(f"{market}: Last Price = {details['last']}")
         else:
             print(f"Error: {data['message']}")
         return prices
@@ -401,7 +395,7 @@ def fetch_crypto_balance_from_chain():
 
     return balances
 
-def get_centralised_balances():
+async def get_centralised_balances():
     balances = get_spot_market().json()
     balances_data = balances['data']
 
@@ -421,7 +415,7 @@ def get_centralised_balances():
         if symbol in token_prices:
             token_detail.update({'price' : Decimal(token_prices[symbol])})
         else:
-            price = fetch_prices_from_coinMarketCap([symbol])
+            price = await fetch_prices_from_coinMarketCap([symbol])
             token_detail.update({'price' : price[symbol]})
         
         if(symbol == "TRUMP"):
@@ -436,146 +430,20 @@ def get_centralised_balances():
         else:
             token_detail.update({'investedAmount' : 0})
 
-    # network = "coinex"
-    table_data = []
-    total_invested_value = 0
-    row_no = 1
-    total_current_value = 0
-    total_pnl = 0
-
-    for details in balances_data:
-        invested_value = details['investedAmount']
-        current_value = details['price'] * Decimal(details['available'])
-        pnl = details['price'] * Decimal(details['available']) - details['investedAmount']
-        percentage = 100
-        invested_times_current = 0
-        is_alarming = ""
-        if invested_value != 0:
-            percentage = round((pnl / invested_value) * 100, 2)
-            invested_times_current = round(current_value / invested_value, 2)
-        if pnl < 0 :
-            is_alarming = "alarming!!!"
-        table_data.append([
-            row_no,    # Wallet Address
-            details['ccy'],  # Token Name
-            details['network'],      # Network Name
-            round(details['price'], 10), # Token Price
-            invested_value, # Invested value
-            current_value, # Total current value
-            pnl, # Total PNL
-            str(percentage) + " %",
-            str(invested_times_current) + " x",
-            is_alarming
-        ])
-        row_no += 1
-        total_invested_value += invested_value
-        total_current_value += current_value
-        total_pnl += pnl
-
-    # Convert data to tabular format
-    table_data.append(["Total Value----", "", "", "", total_invested_value, total_current_value, total_pnl, str(round((total_pnl / total_invested_value) * 100, 2)) + " %", str(round(total_current_value / total_invested_value, 2)) + " x"])
-
-    # Define table headers
-    headers = ["S.No.", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Current Value (USD)", "CML. PNL (USD)", "Percentage I/D", "Invested Times Current", "is_alarming"]
-
-    # Print table
-    print(tabulate(table_data, headers=headers, tablefmt="grid"))
-
     return balances_data
-
-# if __name__ == "__main__":
-#     d_balances = get_decentralised_balances()
-#     c_balances = get_centralised_balances()
-    
-#     table_data = []
-#     total_invested_value = 0
-#     row_no = 1
-#     total_current_value = 0
-#     total_pnl = 0
-
-#     for wallet, symbols in d_balances.items():
-#         for network, details in symbols.items():
-#             invested_value = details['investedAmount']
-#             current_value = round((details['price'] * details['balance']) / details['decimal'], 10)
-#             pnl = round((details['price'] * details['balance']) / details['decimal'], 10) - details['investedAmount']
-#             percentage = 100
-#             invested_times_current = 0
-#             is_alarming = ""
-#             if invested_value != 0:
-#                 percentage = round((pnl / invested_value) * 100, 2)
-#                 invested_times_current = round(current_value / invested_value, 2)
-#             if pnl < 0 :
-#                 is_alarming = "alarming!!!"
-#             table_data.append([
-#                 row_no,    # Wallet Address
-#                 network,      # Network Name
-#                 details['network'],  # Token Name
-#                 round(details['price'], 10), # Token Price
-#                 invested_value, # Invested value
-#                 current_value, # Total current value
-#                 pnl, # Total PNL
-#                 str(percentage) + " %",
-#                 str(invested_times_current) + " x",
-#                 is_alarming
-#             ])
-#             row_no += 1
-#             total_invested_value += invested_value
-#             total_current_value += current_value
-#             total_pnl += pnl
-            
-#     for details in c_balances:
-#         invested_value = details['investedAmount']
-#         current_value = details['price'] * Decimal(details['available'])
-#         pnl = details['price'] * Decimal(details['available']) - details['investedAmount']
-#         percentage = 100
-#         invested_times_current = 0
-#         is_alarming = ""
-#         if invested_value != 0:
-#             percentage = round((pnl / invested_value) * 100, 2)
-#             invested_times_current = round(current_value / invested_value, 2)
-#         if pnl < 0 :
-#             is_alarming = "alarming!!!"
-#         table_data.append([
-#             row_no,    # Wallet Address
-#             details['ccy'],  # Token Name
-#             "coinex",      # Network Name
-#             round(details['price'], 10), # Token Price
-#             invested_value, # Invested value
-#             current_value, # Total current value
-#             pnl, # Total PNL
-#             str(percentage) + " %",
-#             str(invested_times_current) + " x",
-#             is_alarming
-#         ])
-#         row_no += 1
-#         total_invested_value += invested_value
-#         total_current_value += current_value
-#         total_pnl += pnl
-
-#     # Convert data to tabular format
-#     table_data.append(["Total Value----", "", "", "", total_invested_value, total_current_value, total_pnl, str(round((total_pnl / total_invested_value) * 100, 2)) + " %", str(round(total_current_value / total_invested_value, 2)) + " x"])
-
-#     # Define table headers
-#     headers = ["S.No.", "Token Symbol", "Network", "Price (USD)", "Invested Value (USD)", "Current Value (USD)", "CML. PNL (USD)", "Percentage I/D", "Invested Times Current", "is_alarming"]
-
-#     # Print table
-#     print(tabulate(table_data, headers=headers, tablefmt="grid"))
-
-
 
 # Cached data
 cached_balances = None
 cached_prices = {}
-cached_coinex_details = {}
         
-def refresh_balances():
+def refresh_decentralised_balances():
     """Refresh the balances cached."""
     global cached_balances
     print("Fetching balances from blockchain...")
     cached_balances = fetch_crypto_balance_from_chain()
     print("Balances updated!")
 
-def display_table():
+async def display_table(choice):
     table_data = []
     total_invested_value = 0
     row_no = 1
@@ -586,14 +454,46 @@ def display_table():
         print("No balances available...")
         return
     else:
-        for wallet, symbols in cached_balances.items():
-            for network, details in symbols.items():
+        if choice == "1":
+            for wallet, symbols in cached_balances.items():
+                for network, details in symbols.items():
+                    invested_value = details['investedAmount']
+                    current_price = cached_prices.get(network, Decimal(0))
+                    if network == "ETH_BASE" or network == "ETH_ARB":
+                        current_price = cached_prices.get("ETH")
+                    current_value = round((current_price * details['balance']) / details['decimal'], 10)
+                    pnl = round((current_price * details['balance']) / details['decimal'], 10) - details['investedAmount']
+                    percentage = 100
+                    invested_times_current = 0
+                    is_alarming = ""
+                    if invested_value != 0:
+                        percentage = round((pnl / invested_value) * 100, 2)
+                        invested_times_current = round(current_value / invested_value, 2)
+                    if pnl < 0 :
+                        is_alarming = "alarming!!!"
+                    table_data.append([
+                        row_no,    # Wallet Address
+                        network,      # Network Name
+                        details['network'],  # Token Name
+                        round(current_price, 10), # Token Price
+                        invested_value, # Invested value
+                        current_value, # Total current value
+                        pnl, # Total PNL
+                        str(percentage) + " %",
+                        str(invested_times_current) + " x",
+                        is_alarming
+                    ])
+                    row_no += 1
+                    total_invested_value += invested_value
+                    total_current_value += current_value
+                    total_pnl += pnl
+
+        elif choice == "2":
+            c_balances = await get_centralised_balances()            
+            for details in c_balances:
                 invested_value = details['investedAmount']
-                current_price = cached_prices.get(network, Decimal(0))
-                if network == "ETH_BASE" or network == "ETH_ARB":
-                    current_price = cached_prices.get("ETH")
-                current_value = round((current_price * details['balance']) / details['decimal'], 10)
-                pnl = round((current_price * details['balance']) / details['decimal'], 10) - details['investedAmount']
+                current_value = details['price'] * Decimal(details['available'])
+                pnl = details['price'] * Decimal(details['available']) - details['investedAmount']
                 percentage = 100
                 invested_times_current = 0
                 is_alarming = ""
@@ -604,9 +504,9 @@ def display_table():
                     is_alarming = "alarming!!!"
                 table_data.append([
                     row_no,    # Wallet Address
-                    network,      # Network Name
-                    details['network'],  # Token Name
-                    round(current_price, 10), # Token Price
+                    details['ccy'],  # Token Name
+                    "coinex",      # Network Name
+                    round(details['price'], 10), # Token Price
                     invested_value, # Invested value
                     current_value, # Total current value
                     pnl, # Total PNL
@@ -618,6 +518,74 @@ def display_table():
                 total_invested_value += invested_value
                 total_current_value += current_value
                 total_pnl += pnl
+
+        elif choice == "3":
+            for wallet, symbols in cached_balances.items():
+                for network, details in symbols.items():
+                    invested_value = details['investedAmount']
+                    current_price = cached_prices.get(network, Decimal(0))
+                    if network == "ETH_BASE" or network == "ETH_ARB":
+                        current_price = cached_prices.get("ETH")
+                    current_value = round((current_price * details['balance']) / details['decimal'], 10)
+                    pnl = round((current_price * details['balance']) / details['decimal'], 10) - details['investedAmount']
+                    percentage = 100
+                    invested_times_current = 0
+                    is_alarming = ""
+                    if invested_value != 0:
+                        percentage = round((pnl / invested_value) * 100, 2)
+                        invested_times_current = round(current_value / invested_value, 2)
+                    if pnl < 0 :
+                        is_alarming = "alarming!!!"
+                    table_data.append([
+                        row_no,    # Wallet Address
+                        network,      # Network Name
+                        details['network'],  # Token Name
+                        round(current_price, 10), # Token Price
+                        invested_value, # Invested value
+                        current_value, # Total current value
+                        pnl, # Total PNL
+                        str(percentage) + " %",
+                        str(invested_times_current) + " x",
+                        is_alarming
+                    ])
+                    row_no += 1
+                    total_invested_value += invested_value
+                    total_current_value += current_value
+                    total_pnl += pnl
+
+            c_balances = await get_centralised_balances()            
+            for details in c_balances:
+                invested_value = details['investedAmount']
+                current_value = details['price'] * Decimal(details['available'])
+                pnl = details['price'] * Decimal(details['available']) - details['investedAmount']
+                percentage = 100
+                invested_times_current = 0
+                is_alarming = ""
+                if invested_value != 0:
+                    percentage = round((pnl / invested_value) * 100, 2)
+                    invested_times_current = round(current_value / invested_value, 2)
+                if pnl < 0 :
+                    is_alarming = "alarming!!!"
+                table_data.append([
+                    row_no,    # Wallet Address
+                    details['ccy'],  # Token Name
+                    "coinex",      # Network Name
+                    round(details['price'], 10), # Token Price
+                    invested_value, # Invested value
+                    current_value, # Total current value
+                    pnl, # Total PNL
+                    str(percentage) + " %",
+                    str(invested_times_current) + " x",
+                    is_alarming
+                ])
+                row_no += 1
+                total_invested_value += invested_value
+                total_current_value += current_value
+                total_pnl += pnl
+
+        else:
+            print("WRONG CHOICE!")
+            return
 
         table_data.append(["Total Value----", "", "", "", total_invested_value, total_current_value, total_pnl, str(round((total_pnl / total_invested_value) * 100, 2)) + " %", str(round(total_current_value / total_invested_value, 2)) + " x"])
 
@@ -640,13 +608,13 @@ async def update_prices_periodically():
                 for symbol in nested_keys_list:
                     if(symbol != "ETH_ARB" and symbol != "ETH_BASE"):
                         symbols.append(symbol)
-            print(f"Fetching prices at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Fetching decentralised tokens price at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             new_prices = await fetch_prices_from_coinMarketCap(symbols)
             if new_prices:
                 cached_prices = new_prices
             else:
                 print("Failed to update prices.")
-            display_table()
+            # await display_table("4")
         await asyncio.sleep(10)
 
 async def display_menu():
@@ -654,16 +622,25 @@ async def display_menu():
     global cached_balances
     while True:
         print("\nMenu:")
-        print("1. Show balances and prices")
-        print("2. Refresh balances")
-        print("3. Exit")
+        print("1. Show decentralised balances and prices")
+        print("2. Show coinex balances and prices")
+        print("3. Show both balances and prices together of whole investment")
+        print("4. Refresh decentralised wallets balances")
+        print("5. Refresh investment_data google sheet")
+        print("6. Exit")
         choice = input("Enter your choice: ")
 
         if choice == "1":
-            display_table()
+            await display_table("1")
         elif choice == "2":
-            refresh_balances()
+            await display_table("2")
         elif choice == "3":
+            await display_table("3")
+        elif choice == "4":
+            refresh_decentralised_balances()
+        elif choice == "5":
+            update_investment_data(FILE_PATH)
+        elif choice == "6":
             print("Exiting program...")
             break
         else:
@@ -672,12 +649,20 @@ async def display_menu():
         
 async def main():
     # Refresh balances initially
-    refresh_balances()
+    refresh_decentralised_balances()
     # Start the background price updater and menu concurrently
     price_task = asyncio.create_task(update_prices_periodically())
     menu_task = asyncio.create_task(display_menu())
-    # Run both tasks concurrently
-    await asyncio.gather(price_task, menu_task)
+
+    # Wait for the menu task to complete
+    await menu_task
+
+    # Cancel the price task when the menu task finishes
+    price_task.cancel()
+    try:
+        await price_task
+    except asyncio.CancelledError:
+        print("Price update task has been successfully cancelled.")
 
 if __name__ == "__main__":
     asyncio.run(main())
