@@ -82,6 +82,28 @@ def update_investment_data(output_file):
     except requests.exceptions.RequestException as e:
         print(f"Failed to download the sheet: {e}")
 
+# Find invested value from csv file
+def find_row_details(search_value):
+    try:
+        with open(FILE_PATH, mode='r') as file:
+            reader = csv.DictReader(file)
+            found = False
+            # print(f"Rows containing '{search_value}' in column '{COLUMN_NAME}':")
+            # print("-" * 50)
+            for row in reader:
+                if row[COLUMN_NAME] == search_value:
+                    found = True
+                    return(row)
+            
+            if not found:
+                print(f"No rows found with '{search_value}' in column '{COLUMN_NAME}'.")
+    except FileNotFoundError:
+        print(f"Error: The file '{FILE_PATH}' was not found.")
+    except KeyError:
+        print(f"Error: The column '{COLUMN_NAME}' does not exist in the file.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
 class RequestsClient(object):
     HEADERS = {
         "Content-Type": "application/json; charset=utf-8",
@@ -152,6 +174,17 @@ class RequestsClient(object):
 
 REQUEST_CLIENT = RequestsClient()
 
+# Get all centralised coins balances on Coinex
+def get_spot_market():
+    request_path = "/assets/spot/balance"
+    params = {}
+    response = REQUEST_CLIENT.request(
+        "GET",
+        "{url}{request_path}".format(url=REQUEST_CLIENT.url, request_path=request_path),
+        params=params,
+    )
+    return response
+
 # Helper Functions
 def get_erc20_balance(node_url, wallet_address, token_address):
     web3 = Web3(Web3.HTTPProvider(node_url))
@@ -193,16 +226,6 @@ def get_sol_balance(wallet_address):
     result = client.get_balance(Pubkey.from_string(wallet_address))
     bal = result.value
     return bal
-
-def get_spot_market():
-    request_path = "/assets/spot/balance"
-    params = {}
-    response = REQUEST_CLIENT.request(
-        "GET",
-        "{url}{request_path}".format(url=REQUEST_CLIENT.url, request_path=request_path),
-        params=params,
-    )
-    return response
 
 async def fetch_prices_from_coinMarketCap(symbols):
     """Fetch cryptocurrency prices from CoinMarketCap."""
@@ -259,29 +282,7 @@ def fetch_prices_from_coinex(symbols):
         print(f"An error occurred: {e}")
         return {}
 
-# Find invested value from csv file
-def find_row_details(search_value):
-    try:
-        with open(FILE_PATH, mode='r') as file:
-            reader = csv.DictReader(file)
-            found = False
-            # print(f"Rows containing '{search_value}' in column '{COLUMN_NAME}':")
-            # print("-" * 50)
-            for row in reader:
-                if row[COLUMN_NAME] == search_value:
-                    found = True
-                    return(row)
-            
-            if not found:
-                print(f"No rows found with '{search_value}' in column '{COLUMN_NAME}'.")
-    except FileNotFoundError:
-        print(f"Error: The file '{FILE_PATH}' was not found.")
-    except KeyError:
-        print(f"Error: The column '{COLUMN_NAME}' does not exist in the file.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-def fetch_crypto_balance_from_chain():
+def get_decentralised_balances():
     eth_wallet_address_1 = "0x0076437A9385cDAd65FA6D6e80676e37F63AEF80"
     eth_wallet_address_2 = "0x0015e6E05487FE5369e9fBF60D10B566de31170c"
     sol_wallet_address = "DDWygtA7rmyjxFC5etGrw5jh7VUt58PWT2GXFawbvDGc"
@@ -314,7 +315,9 @@ def fetch_crypto_balance_from_chain():
         "NEAR": "0x1Fa4a73a3F0133f0025378af00236f3aBDEE5D63",
         "SHIB": "0x2859e4544C4bB03966803b044A93563Bd2D0DD4D",
         "XRP": "0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE",
-        "ADA": "0x3EE2200Efb3400fAbB9AacF31297cBdD1d435D47"
+        "ADA": "0x3EE2200Efb3400fAbB9AacF31297cBdD1d435D47",
+        "DOGE": "0xba2ae424d960c26247dd6c32edc70b295c744c43",
+        "LKI": "0x1865dc79a9e4B5751531099057D7Ee801033d268"
     } 
     BASE_token_addresses = {
         "BRETT" : "0x532f27101965dd16442E59d40670FaF5eBB142E4",
@@ -440,7 +443,7 @@ def refresh_decentralised_balances():
     """Refresh the balances cached."""
     global cached_balances
     print("Fetching balances from blockchain...")
-    cached_balances = fetch_crypto_balance_from_chain()
+    cached_balances = get_decentralised_balances()
     print("Balances updated!")
 
 async def display_table(choice):
